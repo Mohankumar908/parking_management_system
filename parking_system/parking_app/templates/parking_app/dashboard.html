@@ -1,0 +1,38 @@
+<!-- In your HTML template, parking_app/templates/parking_app/dashboard.html -->
+<h2>Active Passes</h2>
+<ul>
+    {% for p_pass in active_passes %}
+        <li>{{ p_pass.vehicle.vehicle_number }} - {{ p_pass.get_pass_type_display }} (Expires: {{ p_pass.expiry_date|date:"Y-m-d" }})</li>
+    {% empty %}
+        <li>No active passes found.</li>
+    {% endfor %}
+</ul>
+
+<h2>Recent Transactions</h2>
+<ul>
+    {% for transaction in recent_transactions %}
+        <li>{{ transaction.vehicle.vehicle_number }} - Entry: {{ transaction.entry_time|date:"H:i" }} {% if transaction.exit_time %} Exit: {{ transaction.exit_time|date:"H:i" }} {% endif %}</li>
+    {% empty %}
+        <li>No recent transactions.</li>
+    {% endfor %}
+</ul>
+
+<!-- Example for your Create Pass form -->
+<form action="{% url 'parking_app:create_parking_pass' %}" method="post">
+    {% csrf_token %}
+    Vehicle Number: <input type="text" name="vehicle_number"><br>
+    Owner Name: <input type="text" name="owner_name"><br>
+    Vehicle Type:
+    <select name="vehicle_type">
+        {% for key, value in vehicle_types %}
+            <option value="{{ key }}">{{ value }}</option>
+        {% endfor %}
+    </select><br>
+    Pass Type:
+    <select name="pass_type">
+        {% for key, value in pass_types %}
+            <option value="{{ key }}">{{ value }}</option>
+        {% endfor %}
+    </select><br>
+    <button type="submit">Create Pass</button>
+</form>
