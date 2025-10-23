@@ -8,6 +8,11 @@
 </head>
 <body class="bg-gray-100 min-h-screen flex">
 
+  <!-- Hidden CSRF form to set cookie -->
+  <form style="display: none;">
+    {% csrf_token %}
+  </form>
+
   <!-- Sidebar -->
   <aside class="w-64 bg-white shadow-md p-6">
     <h1 class="text-2xl font-bold text-gray-800">Parking System</h1>
@@ -69,32 +74,97 @@
     </div>
   </main>
 
-  <script>
-    // Simple View Switching
-    const entryView = document.getElementById('view-entry-exit');
-    const passView = document.getElementById('view-create-pass');
-    const navEntry = document.getElementById('nav-entry-exit');
-    const navPass = document.getElementById('nav-create-pass');
+<script>
+// --- Toggle Between Entry/Exit and Create Pass Views ---
+document.getElementById('nav-entry-exit').addEventListener('click', () => {
+  document.getElementById('view-entry-exit').classList.remove('hidden');
+  document.getElementById('view-create-pass').classList.add('hidden');
+  document.getElementById('nav-entry-exit').classList.add('bg-gray-200');
+  document.getElementById('nav-create-pass').classList.remove('bg-gray-200');
+});
 
-    navEntry.addEventListener('click', () => {
-      entryView.classList.remove('hidden');
-      passView.classList.add('hidden');
-      navEntry.classList.add('bg-gray-200');
-      navPass.classList.remove('bg-gray-200');
-    });
+document.getElementById('nav-create-pass').addEventListener('click', () => {
+  document.getElementById('view-create-pass').classList.remove('hidden');
+  document.getElementById('view-entry-exit').classList.add('hidden');
+  document.getElementById('nav-create-pass').classList.add('bg-gray-200');
+  document.getElementById('nav-entry-exit').classList.remove('bg-gray-200');
+});
 
-    navPass.addEventListener('click', () => {
-      passView.classList.remove('hidden');
-      entryView.classList.add('hidden');
-      navPass.classList.add('bg-gray-200');
-      navEntry.classList.remove('bg-gray-200');
-    });
+// --- Create Pass Button ---
+document.getElementById('create-pass-btn').addEventListener('click', async () => {
+  const ownerName = document.getElementById('cp-owner-name').value;
+  const vehicleNumber = document.getElementById('cp-vehicle-number').value;
+  const vehicleType = document.getElementById('cp-vehicle-type').value.toLowerCase();
+  const passType = document.getElementById('cp-pass-type').value.toLowerCase();
 
-    // Simple button feedback
-    document.getElementById('entry-btn').onclick = () => alert("Vehicle Entry Recorded!");
-    document.getElementById('exit-btn').onclick = () => alert("Vehicle Exit Recorded!");
-    document.getElementById('create-pass-btn').onclick = () => alert("Pass Created!");
-  </script>
+  const response = await fetch('/create-pass/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-CSRFToken': getCookie('csrftoken')
+    },
+    body: new URLSearchParams({
+      owner_name: ownerName,
+      vehicle_number: vehicleNumber,
+      vehicle_type: vehicleType,
+      pass_type: passType
+    })
+  });
+
+  const data = await response.json();
+  alert(data.message);
+});
+
+// --- Entry Button ---
+document.getElementById('entry-btn').addEventListener('click', async () => {
+  const vehicleNumber = document.getElementById('ee-vehicle-number').value;
+
+  const response = await fetch('/vehicle-entry/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-CSRFToken': getCookie('csrftoken')
+    },
+    body: new URLSearchParams({ vehicle_number: vehicleNumber })
+  });
+
+  const data = await response.json();
+  alert(data.message);
+});
+
+// --- Exit Button ---
+document.getElementById('exit-btn').addEventListener('click', async () => {
+  const vehicleNumber = document.getElementById('ee-vehicle-number').value;
+
+  const response = await fetch('/vehicle-exit/', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-CSRFToken': getCookie('csrftoken')
+    },
+    body: new URLSearchParams({ vehicle_number: vehicleNumber })
+  });
+
+  const data = await response.json();
+  alert(data.message);
+});
+
+// --- Helper to get CSRF Token ---
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    const cookies = document.cookie.split(';');
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === (name + '=')) {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
+}
+</script>
 
 </body>
 </html>
