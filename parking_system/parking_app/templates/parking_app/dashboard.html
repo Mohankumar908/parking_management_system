@@ -1,38 +1,100 @@
-<!-- In your HTML template, parking_app/templates/parking_app/dashboard.html -->
-<h2>Active Passes</h2>
-<ul>
-    {% for p_pass in active_passes %}
-        <li>{{ p_pass.vehicle.vehicle_number }} - {{ p_pass.get_pass_type_display }} (Expires: {{ p_pass.expiry_date|date:"Y-m-d" }})</li>
-    {% empty %}
-        <li>No active passes found.</li>
-    {% endfor %}
-</ul>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parking Management Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex">
 
-<h2>Recent Transactions</h2>
-<ul>
-    {% for transaction in recent_transactions %}
-        <li>{{ transaction.vehicle.vehicle_number }} - Entry: {{ transaction.entry_time|date:"H:i" }} {% if transaction.exit_time %} Exit: {{ transaction.exit_time|date:"H:i" }} {% endif %}</li>
-    {% empty %}
-        <li>No recent transactions.</li>
-    {% endfor %}
-</ul>
+  <!-- Sidebar -->
+  <aside class="w-64 bg-white shadow-md p-6">
+    <h1 class="text-2xl font-bold text-gray-800">Parking System</h1>
+    <nav class="mt-6 space-y-2">
+      <button id="nav-entry-exit" class="w-full text-left p-3 rounded bg-gray-200 font-medium">Entry / Exit</button>
+      <button id="nav-create-pass" class="w-full text-left p-3 rounded hover:bg-gray-100 font-medium">Create Pass</button>
+    </nav>
+  </aside>
 
-<!-- Example for your Create Pass form -->
-<form action="{% url 'parking_app:create_parking_pass' %}" method="post">
-    {% csrf_token %}
-    Vehicle Number: <input type="text" name="vehicle_number"><br>
-    Owner Name: <input type="text" name="owner_name"><br>
-    Vehicle Type:
-    <select name="vehicle_type">
-        {% for key, value in vehicle_types %}
-            <option value="{{ key }}">{{ value }}</option>
-        {% endfor %}
-    </select><br>
-    Pass Type:
-    <select name="pass_type">
-        {% for key, value in pass_types %}
-            <option value="{{ key }}">{{ value }}</option>
-        {% endfor %}
-    </select><br>
-    <button type="submit">Create Pass</button>
-</form>
+  <!-- Main Content -->
+  <main class="flex-1 flex items-center justify-center p-10 relative">
+
+    <!-- Entry / Exit View -->
+    <div id="view-entry-exit" class="w-full max-w-md bg-white p-6 rounded-lg shadow-md">
+      <h2 class="text-xl font-semibold mb-4 text-center">Vehicle Entry / Exit</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Vehicle Number</label>
+          <input id="ee-vehicle-number" type="text" placeholder="KA-01-AB-1234" class="w-full border rounded px-3 py-2 uppercase">
+        </div>
+        <div class="flex space-x-4">
+          <button id="entry-btn" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded">Entry</button>
+          <button id="exit-btn" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded">Exit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Create Pass View -->
+    <div id="view-create-pass" class="hidden w-full max-w-md bg-white p-6 rounded-lg shadow-md">
+      <h2 class="text-xl font-semibold mb-4 text-center">Create New Pass</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Owner Name</label>
+          <input id="cp-owner-name" type="text" placeholder="John Doe" class="w-full border rounded px-3 py-2">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Vehicle Number</label>
+          <input id="cp-vehicle-number" type="text" placeholder="KA-01-AB-1234" class="w-full border rounded px-3 py-2 uppercase">
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Vehicle Type</label>
+          <select id="cp-vehicle-type" class="w-full border rounded px-3 py-2">
+            <option>Car</option>
+            <option>Bike</option>
+            <option>Truck</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Pass Type</label>
+          <select id="cp-pass-type" class="w-full border rounded px-3 py-2">
+            <option>Daily</option>
+            <option>Weekly</option>
+            <option>Monthly</option>
+            <option>Yearly</option>
+          </select>
+        </div>
+        <button id="create-pass-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">Create Pass</button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Simple View Switching
+    const entryView = document.getElementById('view-entry-exit');
+    const passView = document.getElementById('view-create-pass');
+    const navEntry = document.getElementById('nav-entry-exit');
+    const navPass = document.getElementById('nav-create-pass');
+
+    navEntry.addEventListener('click', () => {
+      entryView.classList.remove('hidden');
+      passView.classList.add('hidden');
+      navEntry.classList.add('bg-gray-200');
+      navPass.classList.remove('bg-gray-200');
+    });
+
+    navPass.addEventListener('click', () => {
+      passView.classList.remove('hidden');
+      entryView.classList.add('hidden');
+      navPass.classList.add('bg-gray-200');
+      navEntry.classList.remove('bg-gray-200');
+    });
+
+    // Simple button feedback
+    document.getElementById('entry-btn').onclick = () => alert("Vehicle Entry Recorded!");
+    document.getElementById('exit-btn').onclick = () => alert("Vehicle Exit Recorded!");
+    document.getElementById('create-pass-btn').onclick = () => alert("Pass Created!");
+  </script>
+
+</body>
+</html>
