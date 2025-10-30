@@ -15,11 +15,39 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
+# from django.contrib import admin
+# from django.urls import path, include
+
+# urlpatterns = [
+#     path('admin/', admin.site.urls),
+#     path('', include('parking_app.urls')), 
+# ]
+
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
+from django.conf import settings
+from django.conf.urls.static import static
+from parking_app import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('parking_app.urls')), 
+
+    # 👇 Redirect root to login (you can change to '/dashboard/' if you prefer)
+    path('', RedirectView.as_view(url='/login/', permanent=False)),
+
+    # Main app routes
+    path('parking/', include('parking_app.urls')),
+
+    # API routes
+    # (If you don't have a separate api_urls.py, you can remove this line)
+    path('api/', include('parking_app.api_urls')),
+
+    # Direct routes (for convenience)
+    path('login/', views.login_view, name='login_direct'),
+    path('dashboard/', views.dashboard, name='dashboard_direct'),
 ]
 
+# ✅ Static and media files for development
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

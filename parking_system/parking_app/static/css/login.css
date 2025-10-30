@@ -1,0 +1,14 @@
+body {
+  font-family: 'Inter', sans-serif;
+  background: linear-gradient(135deg, #eef2ff, #e0e7ff);
+}
+
+input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.4);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

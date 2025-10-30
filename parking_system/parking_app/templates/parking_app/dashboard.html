@@ -1,170 +1,67 @@
-<!DOCTYPE html>
+{% load static %}
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Parking Management Dashboard</title>
+
+  <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
+  <!-- Main JS -->
+  <script src="{% static 'js/dashboard.js' %}" defer></script>
 </head>
-<body class="bg-gray-100 min-h-screen flex">
+<body class="bg-gray-100 text-gray-800">
 
-  <!-- Hidden CSRF form to set cookie -->
-  <form style="display: none;">
-    {% csrf_token %}
-  </form>
-
-  <!-- Sidebar -->
-  <aside class="w-64 bg-white shadow-md p-6">
-    <h1 class="text-2xl font-bold text-gray-800">Parking System</h1>
-    <nav class="mt-6 space-y-2">
-      <button id="nav-entry-exit" class="w-full text-left p-3 rounded bg-gray-200 font-medium">Entry / Exit</button>
-      <button id="nav-create-pass" class="w-full text-left p-3 rounded hover:bg-gray-100 font-medium">Create Pass</button>
-    </nav>
-  </aside>
-
-  <!-- Main Content -->
-  <main class="flex-1 flex items-center justify-center p-10 relative">
-
-    <!-- Entry / Exit View -->
-    <div id="view-entry-exit" class="w-full max-w-md bg-white p-6 rounded-lg shadow-md">
-      <h2 class="text-xl font-semibold mb-4 text-center">Vehicle Entry / Exit</h2>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">Vehicle Number</label>
-          <input id="ee-vehicle-number" type="text" placeholder="KA-01-AB-1234" class="w-full border rounded px-3 py-2 uppercase">
-        </div>
-        <div class="flex space-x-4">
-          <button id="entry-btn" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded">Entry</button>
-          <button id="exit-btn" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded">Exit</button>
-        </div>
-      </div>
+  <!-- Top Header -->
+  <header class="bg-gray-900 text-white h-12 flex items-center px-6">
+    <div class="flex-1 text-sm font-medium">Parking Management Dashboard</div>
+    <div class="flex items-center gap-3">
+      <button id="refreshBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-sm">Refresh</button>
+      <a href="/api/auth/logout/" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Logout</a>
     </div>
+  </header>
 
-    <!-- Create Pass View -->
-    <div id="view-create-pass" class="hidden w-full max-w-md bg-white p-6 rounded-lg shadow-md">
-      <h2 class="text-xl font-semibold mb-4 text-center">Create New Pass</h2>
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium mb-1">Owner Name</label>
-          <input id="cp-owner-name" type="text" placeholder="John Doe" class="w-full border rounded px-3 py-2">
+  <!-- Page Layout -->
+  <div class="flex h-[calc(100vh-48px)]">
+    
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-r overflow-auto">
+      <div class="p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-md bg-indigo-600 flex items-center justify-center text-white">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2a3 3 0 0 0-3 3v1H6.5A2.5 2.5 0 0 0 4 8.5v5A2.5 2.5 0 0 0 6.5 16H9v1a3 3 0 0 0 3 3h0a3 3 0 0 0 3-3v-1h2.5A2.5 2.5 0 0 0 20 13.5v-5A2.5 2.5 0 0 0 17.5 6H15V5a3 3 0 0 0-3-3z" fill="currentColor"/></svg>
+          </div>
+          <div>
+            <div class="font-bold text-lg">Parking System</div>
+            <div class="text-xs text-gray-500">Admin Dashboard</div>
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">Vehicle Number</label>
-          <input id="cp-vehicle-number" type="text" placeholder="KA-01-AB-1234" class="w-full border rounded px-3 py-2 uppercase">
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">Vehicle Type</label>
-          <select id="cp-vehicle-type" class="w-full border rounded px-3 py-2">
-            <option>Car</option>
-            <option>Bike</option>
-            <option>Truck</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm font-medium mb-1">Pass Type</label>
-          <select id="cp-pass-type" class="w-full border rounded px-3 py-2">
-            <option>Daily</option>
-            <option>Weekly</option>
-            <option>Monthly</option>
-            <option>Yearly</option>
-          </select>
-        </div>
-        <button id="create-pass-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded">Create Pass</button>
+
+        <nav id="sidebarNav" class="space-y-1">
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl bg-indigo-100 font-medium" data-view="overview">Overview</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="entry-exit">Entry / Exit</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="create-pass">Create Pass</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="manage-passes">Manage Passes</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="pass-history">Pass History</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="available-slots">Available Slots</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="transactions">Transactions</button>
+          <button class="nav-btn block w-full text-left px-3 py-2 rounded-l-xl" data-view="expiry-alerts">Expiry Alerts</button>
+        </nav>
       </div>
-    </div>
-  </main>
+    </aside>
 
-<script>
-// --- Toggle Between Entry/Exit and Create Pass Views ---
-document.getElementById('nav-entry-exit').addEventListener('click', () => {
-  document.getElementById('view-entry-exit').classList.remove('hidden');
-  document.getElementById('view-create-pass').classList.add('hidden');
-  document.getElementById('nav-entry-exit').classList.add('bg-gray-200');
-  document.getElementById('nav-create-pass').classList.remove('bg-gray-200');
-});
-
-document.getElementById('nav-create-pass').addEventListener('click', () => {
-  document.getElementById('view-create-pass').classList.remove('hidden');
-  document.getElementById('view-entry-exit').classList.add('hidden');
-  document.getElementById('nav-create-pass').classList.add('bg-gray-200');
-  document.getElementById('nav-entry-exit').classList.remove('bg-gray-200');
-});
-
-// --- Create Pass Button ---
-document.getElementById('create-pass-btn').addEventListener('click', async () => {
-  const ownerName = document.getElementById('cp-owner-name').value;
-  const vehicleNumber = document.getElementById('cp-vehicle-number').value;
-  const vehicleType = document.getElementById('cp-vehicle-type').value.toLowerCase();
-  const passType = document.getElementById('cp-pass-type').value.toLowerCase();
-
-  const response = await fetch('/create-pass/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': getCookie('csrftoken')
-    },
-    body: new URLSearchParams({
-      owner_name: ownerName,
-      vehicle_number: vehicleNumber,
-      vehicle_type: vehicleType,
-      pass_type: passType
-    })
-  });
-
-  const data = await response.json();
-  alert(data.message);
-});
-
-// --- Entry Button ---
-document.getElementById('entry-btn').addEventListener('click', async () => {
-  const vehicleNumber = document.getElementById('ee-vehicle-number').value;
-
-  const response = await fetch('/vehicle-entry/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': getCookie('csrftoken')
-    },
-    body: new URLSearchParams({ vehicle_number: vehicleNumber })
-  });
-
-  const data = await response.json();
-  alert(data.message);
-});
-
-// --- Exit Button ---
-document.getElementById('exit-btn').addEventListener('click', async () => {
-  const vehicleNumber = document.getElementById('ee-vehicle-number').value;
-
-  const response = await fetch('/vehicle-exit/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'X-CSRFToken': getCookie('csrftoken')
-    },
-    body: new URLSearchParams({ vehicle_number: vehicleNumber })
-  });
-
-  const data = await response.json();
-  alert(data.message);
-});
-
-// --- Helper to get CSRF Token ---
-function getCookie(name) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== '') {
-    const cookies = document.cookie.split(';');
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === (name + '=')) {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
-</script>
+    <!-- Main Content -->
+    <main id="mainContent" class="flex-1 p-8 overflow-auto bg-gray-50">
+      <div id="section-root">
+        <div class="text-center text-gray-500 mt-10">Loading Dashboard...</div>
+      </div>
+    </main>
+  </div>
 
 </body>
 </html>

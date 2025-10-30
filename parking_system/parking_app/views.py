@@ -1,128 +1,422 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.http import require_POST, require_GET
+from django.shortcuts import render
+from django.http import JsonResponse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Sum, Q
 from datetime import timedelta
+import json
 
-from .models import Owner, Vehicle, ParkingPass, Transaction
+from rest_framework import generics, views, status
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.authtoken.models import Token
+from rest_framework.authtoken.views import ObtainAuthToken
 
-def calculate_expiry_date(pass_type):
-    if pass_type == 'daily':
-        return timezone.now() + timedelta(days=1)
-    elif pass_type == 'weekly':
-        return timezone.now() + timedelta(weeks=1)
-    elif pass_type == 'monthly':
-        return timezone.now() + timedelta(days=30) 
-    elif pass_type == 'yearly':
-        return timezone.now() + timedelta(days=365) 
-    return timezone.now() 
+from .models import Owner, Vehicle, ParkingPass, ParkingTransaction
+from .serializers import (
+    OwnerSerializer,
+    VehicleSerializer,
+    ParkingPassSerializer,
+    ParkingTransactionSerializer,
+    CreatePassRequestSerializer,
+    VehicleEntryRequestSerializer,
+    VehicleExitRequestSerializer
+)
 
-def dashboard_view(request):
-    
-    active_passes_count = ParkingPass.objects.filter(is_active=True, expiry_date__gt=timezone.now()).count()
-    recent_transactions = Transaction.objects.order_by('-entry_time')[:10] 
+# ======================================================
+# ========== PAGE RENDERING (Frontend) =================
+# ======================================================
+def login_view(request):
+    return render(request, "parking_app/login.html")
 
-    context = {
-        'active_passes_count': active_passes_count,
-        'recent_transactions': recent_transactions,
-        'pass_types': ParkingPass.PASS_TYPES, 
-        'vehicle_types': Vehicle.VEHICLE_TYPES, 
-    }
-    return render(request, 'parking_app/dashboard.html', context)
+def dashboard(request):
+    return render(request, "parking_app/dashboard.html")
 
-@require_POST
-def create_parking_pass(request):
- 
-    vehicle_number = request.POST.get('vehicle_number')
-    owner_name = request.POST.get('owner_name')
-    vehicle_type = request.POST.get('vehicle_type')
-    pass_type = request.POST.get('pass_type')
-
-    if not all([vehicle_number, owner_name, vehicle_type, pass_type]):
-        return JsonResponse({'status': 'error', 'message': 'Missing required fields'}, status=400)
-
+def section(request, view_name):
+    """Serve section fragments dynamically"""
     try:
-        owner, created = Owner.objects.get_or_create(name=owner_name)
+        return render(request, f"parking_app/sections/{view_name}.html")
+    except Exception:
+        return JsonResponse({"error": "Section not found"}, status=404)
 
-        vehicle, created = Vehicle.objects.get_or_create(
+
+# ======================================================
+# ========== BASIC JSON API ENDPOINTS =================
+# ======================================================
+@csrf_exempt
+def create_pass(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Invalid method"}, status=405)
+
+    data = json.loads(request.body)
+    owner_name = data.get("owner_name")
+    vehicle_no = data.get("vehicle_no")
+    vehicle_type = data.get("vehicle_type")
+    pass_type = data.get("pass_type")
+
+    if not owner_name or not vehicle_no:
+        return JsonResponse({"error": "Missing required fields"}, status=400)
+
+    owner, _ = Owner.objects.get_or_create(name=owner_name)
+    vehicle, _ = Vehicle.objects.get_or_create(
+        vehicle_number=vehicle_no.upper(),
+        defaults={"vehicle_type": vehicle_type, "owner": owner}
+    )
+
+    # Prevent duplicate active pass
+    if ParkingPass.objects.filter(vehicle=vehicle, expiry_date__gt=timezone.now()).exists():
+        return JsonResponse({"error": "Vehicle already has an active pass"}, status=400)
+
+    ParkingPass.objects.create(vehicle=vehicle, pass_type=pass_type)
+    return JsonResponse({"success": True, "message": f"Pass created for {vehicle_no}"})
+
+
+@csrf_exempt
+def record_entry_exit(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Invalid method"}, status=405)
+
+    data = json.loads(request.body)
+    vehicle_no = data.get("vehicle_no")
+    action = data.get("action")
+    vehicle_type = data.get("vehicle_type", "car")
+
+    if not vehicle_no or not action:
+        return JsonResponse({"error": "Missing fields"}, status=400)
+
+    vehicle, _ = Vehicle.objects.get_or_create(
+        vehicle_number=vehicle_no.upper(),
+        defaults={"vehicle_type": vehicle_type}
+    )
+
+    # ENTRY
+    if action == "entry":
+        if ParkingTransaction.objects.filter(vehicle=vehicle, exit_time__isnull=True).exists():
+            return JsonResponse({"error": "Vehicle already parked"}, status=400)
+
+        ParkingTransaction.objects.create(vehicle=vehicle, status="Parked")
+        return JsonResponse({"success": True, "message": f"{vehicle_no} entered successfully"})
+
+    # EXIT
+    elif action == "exit":
+        transaction = ParkingTransaction.objects.filter(vehicle=vehicle, exit_time__isnull=True).last()
+        if not transaction:
+            return JsonResponse({"error": "Vehicle not currently parked"}, status=400)
+
+        transaction.exit_time = timezone.now()
+        transaction.status = "Exited"
+
+        # If no valid pass, charge fee
+        has_pass = ParkingPass.objects.filter(vehicle=vehicle, expiry_date__gt=timezone.now()).exists()
+        if not has_pass:
+            transaction.fees_paid = transaction.calculate_fees()
+        else:
+            transaction.fees_paid = 0.0
+
+        transaction.save()
+
+        msg = f"{vehicle_no} exited successfully"
+        if transaction.fees_paid:
+            msg += f" | Fee: ₹{transaction.fees_paid}"
+
+        # ✅ Trigger auto-dashboard refresh data
+        return JsonResponse({
+            "success": True,
+            "message": msg,
+            "updated": {
+                "slots_filled": ParkingTransaction.objects.filter(exit_time__isnull=True).count(),
+                "earnings_today": float(ParkingTransaction.objects.aggregate(Sum('fees_paid'))['fees_paid__sum'] or 0.0)
+            }
+        })
+
+    return JsonResponse({"error": "Invalid action"}, status=400)
+
+
+
+
+def get_dashboard_stats(request):
+    now = timezone.now()
+    active_passes = ParkingPass.objects.filter(expiry_date__gt=now).count()
+    vehicles_today = ParkingTransaction.objects.filter(entry_time__date=now.date()).count()
+    earnings_today = ParkingTransaction.objects.aggregate(total=Sum("fees_paid"))["total"] or 0.0
+    slots_filled = ParkingTransaction.objects.filter(exit_time__isnull=True).count()
+
+    return JsonResponse({
+        "active_passes": active_passes,
+        "vehicles_today": vehicles_today,
+        "earnings_today": earnings_today,
+        "slots_filled": slots_filled
+    })
+
+
+def get_available_slots(request):
+    TOTAL_CAR_SLOTS = 50
+    TOTAL_BIKE_SLOTS = 50
+
+    cars_occupied = ParkingTransaction.objects.filter(vehicle__vehicle_type="car", exit_time__isnull=True).count()
+    bikes_occupied = ParkingTransaction.objects.filter(vehicle__vehicle_type="bike", exit_time__isnull=True).count()
+
+    return JsonResponse({
+        "cars": {"total": TOTAL_CAR_SLOTS, "occupied": cars_occupied, "available": TOTAL_CAR_SLOTS - cars_occupied},
+        "bikes": {"total": TOTAL_BIKE_SLOTS, "occupied": bikes_occupied, "available": TOTAL_BIKE_SLOTS - bikes_occupied},
+    })
+
+
+# ======================================================
+# ========== AUTHENTICATION ============================
+# ======================================================
+class LoginView(ObtainAuthToken):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        token, _ = Token.objects.get_or_create(user=user)
+        return Response({"token": token.key, "username": user.username, "message": "Login successful"})
+
+
+class LogoutView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        Token.objects.filter(user=request.user).delete()
+        return Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
+
+
+# ======================================================
+# ========== DASHBOARD / TRANSACTIONS ==================
+# ======================================================
+class DashboardStatsView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        now = timezone.now()
+
+        # Active passes that are not expired
+        active_passes = ParkingPass.objects.filter(expiry_date__gt=now).count()
+
+        # Today's transactions
+        today_txns = ParkingTransaction.objects.filter(entry_time__date=now.date())
+
+        # Distinct vehicles today
+        vehicles_today = today_txns.values("vehicle__vehicle_number").distinct().count()
+
+        # Total earnings today
+        earnings = today_txns.aggregate(total=Sum("fees_paid"))["total"] or 0
+
+        # Vehicles still parked (exit_time is null)
+        occupied_count = ParkingTransaction.objects.filter(exit_time__isnull=True).count()
+
+        # Format the data for frontend
+        data = {
+            "active_passes_count": active_passes,
+            "vehicles_today": vehicles_today,
+            "earnings_today": round(float(earnings), 2),
+            "slots_filled": occupied_count,  # send only number, not "x / 100"
+        }
+
+        return Response(data)
+
+
+class TransactionsView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ParkingTransactionSerializer
+
+    def get_queryset(self):
+        return ParkingTransaction.objects.select_related("vehicle__owner").order_by("-entry_time")
+
+
+
+class AllTransactionsView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ParkingTransactionSerializer
+
+    def get_queryset(self):
+        return ParkingTransaction.objects.select_related("vehicle__owner").order_by("-entry_time")
+
+
+# ======================================================
+# ========== PASS MANAGEMENT ===========================
+# ======================================================
+class CreatePassView(views.APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = CreatePassRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        owner_name = serializer.validated_data['owner_name']
+        vehicle_number = serializer.validated_data['vehicle_number'].upper()
+        vehicle_type = serializer.validated_data['vehicle_type']
+        pass_type = serializer.validated_data['pass_type']
+
+        owner, _ = Owner.objects.get_or_create(name=owner_name)
+        vehicle, created_vehicle = Vehicle.objects.get_or_create(
             vehicle_number=vehicle_number,
             defaults={'owner': owner, 'vehicle_type': vehicle_type}
         )
 
-        existing_pass = ParkingPass.objects.filter(vehicle=vehicle, is_active=True, expiry_date__gt=timezone.now()).first()
-        if existing_pass:
-            return JsonResponse({'status': 'error', 'message': 'Vehicle already has an active pass.'}, status=400)
+        if ParkingPass.objects.filter(vehicle=vehicle, expiry_date__gt=timezone.now()).exists():
+            return Response({'status': 'error', 'message': 'Vehicle already has an active pass.'},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        expiry_date = calculate_expiry_date(pass_type)
+        ParkingPass.objects.create(vehicle=vehicle, pass_type=pass_type)
+        return Response({'status': 'success', 'message': f'Pass for {vehicle_number} created successfully!'},
+                        status=status.HTTP_201_CREATED)
 
-        parking_pass = ParkingPass.objects.create(
-            vehicle=vehicle,
-            pass_type=pass_type,
-            expiry_date=expiry_date,
-            is_active=True
-        )
-        return JsonResponse({'status': 'success', 'message': f'Pass for {vehicle_number} created successfully!', 'pass_id': parking_pass.id})
 
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+class AllPassesView(generics.ListAPIView):
+    """Returns all parking passes with owner/vehicle details."""
+    permission_classes = [IsAuthenticated]
+    serializer_class = ParkingPassSerializer
 
-@require_POST
-def vehicle_entry(request):
+    def get_queryset(self):
+        return ParkingPass.objects.select_related('vehicle__owner').order_by('-issue_date')
 
-    vehicle_number = request.POST.get('vehicle_number')
-    if not vehicle_number:
-        return JsonResponse({'status': 'error', 'message': 'Vehicle number is required.'}, status=400)
 
-    try:
-        vehicle = get_object_or_404(Vehicle, vehicle_number=vehicle_number)
+class ExpiryNotificationsView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ParkingPassSerializer
 
-        active_pass = ParkingPass.objects.filter(vehicle=vehicle, is_active=True, expiry_date__gt=timezone.now()).first()
-        if active_pass:
-            message = f"Vehicle {vehicle_number} entered with an active {active_pass.get_pass_type_display()} pass."
-        else:
-            message = f"Vehicle {vehicle_number} entered. No active pass found."
+    def get_queryset(self):
+        now = timezone.now()
+        soon = now + timedelta(days=7)
+        return ParkingPass.objects.filter(expiry_date__gt=now, expiry_date__lte=soon).select_related("vehicle__owner")
 
-        transaction = Transaction.objects.create(vehicle=vehicle, entry_time=timezone.now())
-        return JsonResponse({'status': 'success', 'message': message, 'transaction_id': transaction.id})
+    def list(self, request, *args, **kwargs):
+        now = timezone.now()
+        data = [
+            {
+                "id": p.id,
+                "vehicle_number": p.vehicle.vehicle_number,
+                "owner_name": p.vehicle.owner.name,
+                "pass_type": p.pass_type,
+                "expiry_date": p.expiry_date,
+                "days_left": (p.expiry_date.date() - now.date()).days,
+            }
+            for p in self.get_queryset()
+        ]
+        return Response(data)
 
-    except Vehicle.DoesNotExist:
-        return JsonResponse({'status': 'error', 'message': 'Vehicle not found. Please create a pass first.'}, status=404)
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
-@require_POST
-def vehicle_exit(request):
+class VehicleEntryExitView(views.APIView):
+    """Handles both vehicle entry and exit logic."""
+    permission_classes = [IsAuthenticated]
 
-    vehicle_number = request.POST.get('vehicle_number')
-    if not vehicle_number:
-        return JsonResponse({'status': 'error', 'message': 'Vehicle number is required.'}, status=400)
+    def post(self, request):
+        entry_serializer = VehicleEntryRequestSerializer(data=request.data)
+        if entry_serializer.is_valid():
+            vehicle_number = entry_serializer.validated_data['vehicle_number'].upper()
+            vehicle_type = entry_serializer.validated_data['vehicle_type']
+            guest_owner, _ = Owner.objects.get_or_create(name='Guest')
 
-    try:
-        vehicle = get_object_or_404(Vehicle, vehicle_number=vehicle_number)
+            vehicle, _ = Vehicle.objects.get_or_create(
+                vehicle_number=vehicle_number,
+                defaults={'owner': guest_owner, 'vehicle_type': vehicle_type}
+            )
 
-        transaction = Transaction.objects.filter(vehicle=vehicle, exit_time__isnull=True).order_by('-entry_time').first()
+            if ParkingTransaction.objects.filter(vehicle=vehicle, exit_time__isnull=True).exists():
+                return Response({'status': 'error', 'message': 'Vehicle is already parked inside.'},
+                                status=status.HTTP_400_BAD_REQUEST)
 
-        if not transaction:
-            return JsonResponse({'status': 'error', 'message': 'No active entry found for this vehicle.'}, status=404)
+            ParkingTransaction.objects.create(vehicle=vehicle)
+            return Response({'status': 'success', 'message': f'Vehicle {vehicle_number} entered.'},
+                            status=status.HTTP_201_CREATED)
 
-        transaction.exit_time = timezone.now()
+        # Try exit
+        exit_serializer = VehicleExitRequestSerializer(data=request.data)
+        if exit_serializer.is_valid():
+            vehicle_number = exit_serializer.validated_data['vehicle_number'].upper()
+            transaction = ParkingTransaction.objects.filter(
+                vehicle__vehicle_number=vehicle_number, exit_time__isnull=True
+            ).first()
 
-        fees = 0
-        active_pass = ParkingPass.objects.filter(vehicle=vehicle, is_active=True, expiry_date__gt=timezone.now()).first()
-        if not active_pass:
+            if not transaction:
+                return Response({'status': 'error', 'message': 'No active entry for this vehicle.'},
+                                status=status.HTTP_404_NOT_FOUND)
 
-            duration = (transaction.exit_time - transaction.entry_time).total_seconds() / 3600 # in hours
-            hourly_rate = 5.00 
-            fees = round(duration * hourly_rate, 2)
-            transaction.fees_paid = fees
-            message = f"Vehicle {vehicle_number} exited. Fees: ${fees:.2f}"
-        else:
-            message = f"Vehicle {vehicle_number} exited with active pass. No fees charged."
+            transaction.exit_time = timezone.now()
 
-        transaction.save()
-        return JsonResponse({'status': 'success', 'message': message, 'transaction_id': transaction.id, 'fees': fees})
+            if not ParkingPass.objects.filter(vehicle=transaction.vehicle, expiry_date__gt=timezone.now()).exists():
+                transaction.fees_paid = transaction.calculate_fees()
 
-    except Vehicle.DoesNotExist:
-        return JsonResponse({'status': 'error', 'message': 'Vehicle not found.'}, status=404)
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+            transaction.status = "Exited"
+            transaction.save()
+
+            msg = f'Vehicle {vehicle_number} exited.'
+            if transaction.fees_paid:
+                msg += f' Fees: ₹{transaction.fees_paid:.2f}'
+            return Response({'status': 'success', 'message': msg}, status=status.HTTP_200_OK)
+
+        return Response({'status': 'error', 'message': 'Invalid entry or exit data.'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+# ======================================================
+# ========== SLOT STATUS (for dashboard) ===============
+# ======================================================
+class SlotsDataView(views.APIView):
+    """
+    Returns available and occupied slots for cars and bikes.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        TOTAL_CAR_SLOTS = 50
+        TOTAL_BIKE_SLOTS = 50
+
+        parked = ParkingTransaction.objects.filter(exit_time__isnull=True).select_related('vehicle')
+        cars_occupied = parked.filter(Q(vehicle__vehicle_type='car') | Q(vehicle__vehicle_type='other')).count()
+        bikes_occupied = parked.filter(vehicle__vehicle_type='bike').count()
+
+        return Response({
+            'cars_occupied': cars_occupied,
+            'bikes_occupied': bikes_occupied,
+            'total_car_slots': TOTAL_CAR_SLOTS,
+            'total_bike_slots': TOTAL_BIKE_SLOTS,
+            'car_available': TOTAL_CAR_SLOTS - cars_occupied,
+            'bike_available': TOTAL_BIKE_SLOTS - bikes_occupied,
+        })
+
+# ======================================================
+# ========== OWNERS, VEHICLES & TRANSACTIONS ===========
+# ======================================================
+
+class OwnersListView(generics.ListAPIView):
+    """
+    Returns a list of all vehicle owners.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = OwnerSerializer
+
+    def get_queryset(self):
+        return Owner.objects.all().order_by('name')
+
+
+class VehiclesListView(generics.ListAPIView):
+    """
+    Returns all registered vehicles with owner info.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = VehicleSerializer
+
+    def get_queryset(self):
+        return Vehicle.objects.select_related('owner').order_by('vehicle_number')
+
+
+class AllTransactionsView(generics.ListAPIView):
+    """
+    Returns full transaction history (entry & exit).
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = ParkingTransactionSerializer
+
+    def get_queryset(self):
+        return ParkingTransaction.objects.select_related('vehicle__owner').order_by('-entry_time')
+
+class RecentTransactionsView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ParkingTransactionSerializer
+
+    def get_queryset(self):
+        return ParkingTransaction.objects.select_related("vehicle__owner").order_by("-entry_time")[:5]

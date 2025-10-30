@@ -1,0 +1,27 @@
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+/* Simple reusable card styling */
+.card {
+  background-color: white;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* Hover effect for table rows */
+.table-row:hover {
+  background-color: #f9fafb;
+  transition: background 0.2s ease-in-out;
+}
+
+.table-header {
+  background-color: #f3f4f6;
+  font-weight: 600;
+}
+
+button,
+.nav-btn {
+  transition: background 0.2s ease-in-out, color 0.2s ease-in-out;
+}
